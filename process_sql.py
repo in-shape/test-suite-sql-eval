@@ -25,7 +25,7 @@
 ################################
 
 import json
-import sqlite3
+import psycopg2
 from nltk import word_tokenize
 
 CLAUSE_KEYWORDS = ('select', 'from', 'where', 'group', 'order', 'limit', 'intersect', 'union', 'except')
@@ -85,17 +85,55 @@ def get_schema(db):
     """
 
     schema = {}
-    conn = sqlite3.connect(db)
+    conn = psycopg2.connect(**{
+                    "dbname": "postgres",
+                    "user": "postgres",
+                    "password": "postgres",
+                    "host": "localhost",
+                    "port": 5432,
+                })
     cursor = conn.cursor()
 
     # fetch table names
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+    cursor.execute("""
+        SELECT tablename
+        FROM pg_catalog.pg_tables
+        WHERE schemaname = 'public';
+        """)
     tables = [str(table[0].lower()) for table in cursor.fetchall()]
 
     # fetch table info
     for table in tables:
-        cursor.execute("PRAGMA table_info({})".format(table))
-        schema[table] = [str(col[1].lower()) for col in cursor.fetchall()]
+        cursor.execute(f"""
+        SELECT 
+            column_name, 
+            data_type 
+        FROM 
+            information_schema.columns
+        WHERE 
+            table_name = '{table}';
+        """)
+        schema[table] = [str(col[0].lower()) for col in cursor.fetchall()]
+
+    cursor.execute("""
+        SELECT viewname
+        FROM pg_catalog.pg_views
+        WHERE schemaname = 'public';
+        """)
+    views = [str(view[0].lower()) for view in cursor.fetchall()]
+
+    # fetch views info
+    for view in views:
+        cursor.execute(f"""
+        SELECT 
+            column_name, 
+            data_type 
+        FROM 
+            information_schema.columns
+        WHERE 
+            table_name = '{view}';
+        """)
+        schema[view] = [str(col[0].lower()) for col in cursor.fetchall()]
 
     return schema
 
@@ -216,6 +254,7 @@ def parse_col_unit(toks, start_idx, tables_with_alias, schema, default_tables=No
     if toks[idx] == "distinct":
         idx += 1
         isDistinct = True
+    
     agg_id = AGG_OPS.index("none")
     idx, col_id = parse_col(toks, idx, tables_with_alias, schema, default_tables)
 
