@@ -493,7 +493,7 @@ def parse_from(toks, start_idx, tables_with_alias, schema):
             idx, sql = parse_sql(toks, idx, tables_with_alias, schema)
             table_units.append((TABLE_TYPE["sql"], sql))
         else:
-            if idx < len_ and toks[idx] == "join":
+            if idx < len_ and toks[idx] == "join" or toks[idx] == ",":
                 idx += 1  # skip join
             idx, table_unit, table_name = parse_table_unit(
                 toks, idx, tables_with_alias, schema

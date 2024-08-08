@@ -66,7 +66,7 @@ CREATE TABLE "organization" (
 
 CREATE TABLE "publication" (
     "abstract" text,
-    "cid" text,
+    "cid" bigint,
     "citation_num" bigint,
     "jid" bigint,
     "pid" bigint,
