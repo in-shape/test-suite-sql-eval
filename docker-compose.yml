@@ -1,0 +1,11 @@
+services:
+  evaluation_postgres:
+    build:
+      context: .
+    restart: always
+    ports:
+      - 5432:5432
+    volumes:
+      - ./.eval_pg/pg_data:/var/lib/postgresql/data
+    expose:
+      - 5432

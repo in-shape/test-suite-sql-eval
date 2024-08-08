@@ -6,6 +6,7 @@ import threading
 from typing import Tuple, Any, List, Set
 from itertools import product
 from collections import defaultdict
+import psycopg2
 import tqdm
 import random
 from parse import get_all_preds_for_execution, remove_distinct
@@ -15,10 +16,10 @@ import subprocess
 from itertools import chain
 
 
-
 threadLock = threading.Lock()
 TIMEOUT = 60
-EXEC_TMP_DIR = 'tmp/'
+EXEC_TMP_DIR = "tmp/"
+
 
 def permute_tuple(element: Tuple, perm: Tuple) -> Tuple:
     assert len(element) == len(perm)
@@ -142,27 +143,35 @@ def get_cursor_from_path(sqlite_path: str):
     return cursor
 
 
-async def exec_on_db_(sqlite_path: str, query: str) -> Tuple[str, Any]:
+async def exec_on_db_(query: str) -> Tuple[str, Any]:
     query = replace_cur_year(query)
-    cursor = get_cursor_from_path(sqlite_path)
+    conn = psycopg2.connect(
+        **{
+            "dbname": "postgres",
+            "user": "postgres",
+            "password": "postgres",
+            "host": "localhost",
+            "port": 5432,
+        }
+    )
+    cursor = conn.cursor()
     try:
         cursor.execute(query)
         result = cursor.fetchall()
         cursor.close()
-        cursor.connection.close()
         return "result", result
     except Exception as e:
         cursor.close()
-        cursor.connection.close()
         return "exception", e
 
+
 async def exec_on_db(
-    sqlite_path: str, query: str, process_id: str = "", timeout: int = TIMEOUT
+    query: str, process_id: str = "", timeout: int = TIMEOUT
 ) -> Tuple[str, Any]:
     try:
-        return await asyncio.wait_for(exec_on_db_(sqlite_path, query), timeout)
+        return await asyncio.wait_for(exec_on_db_(query), timeout)
     except asyncio.TimeoutError:
-        return ('exception', TimeoutError)
+        return ("exception", TimeoutError)
     except Exception as e:
         return ("exception", e)
 
@@ -170,7 +179,7 @@ async def exec_on_db(
 # postprocess the model predictions to avoid execution errors
 # e.g. removing spaces between ">" and "="
 def postprocess(query: str) -> str:
-    query = query.replace('> =', '>=').replace('< =', '<=').replace('! =', '!=')
+    query = query.replace("> =", ">=").replace("< =", "<=").replace("! =", "!=")
     return query
 
 
@@ -181,7 +190,13 @@ def postprocess(query: str) -> str:
 # 0 if denotationally equivalent
 # 1 otherwise
 # the meaning of each auxillary argument can be seen in the parser definition in evaluation.py
-def eval_exec_match(db: str, p_str: str, g_str: str, plug_value: bool, keep_distinct: bool, progress_bar_for_each_datapoint: bool) -> int:
+def eval_exec_match(
+    p_str: str,
+    g_str: str,
+    plug_value: bool,
+    keep_distinct: bool,
+    progress_bar_for_each_datapoint: bool,
+) -> int:
     # post-process the prediction.
     # e.g. removing spaces between ">" and "="
     p_str, g_str = postprocess(p_str), postprocess(g_str)
@@ -194,11 +209,7 @@ def eval_exec_match(db: str, p_str: str, g_str: str, plug_value: bool, keep_dist
     # if there is order by in query, then we assume order of the rows matter
     # order by might also be used to find the max/min instead of sorting,
     # but in that case the result mostly only contains one row and hence order_matters does not make a difference
-    order_matters = 'order by' in g_str.lower()
-
-    # find all databases in the same directory
-    db_dir = os.path.dirname(db)
-    db_paths = [os.path.join(db_dir, basename) for basename in os.listdir(db_dir) if '.sqlite' in basename]
+    order_matters = "order by" in g_str.lower()
 
     preds = [p_str]
     # if plug in value (i.e. we do not consider value prediction correctness)
@@ -210,36 +221,26 @@ def eval_exec_match(db: str, p_str: str, g_str: str, plug_value: bool, keep_dist
         # this reduces "false negatives" when value is substituted
         preds = chain([p_str], preds)
 
+    pred_passes = 0
+
     for pred in preds:
 
-        pred_passes = 1
-        # compare the gold and predicted denotations on each database in the directory
-        # wrap with progress bar if required
-        if progress_bar_for_each_datapoint:
-            ranger = tqdm.tqdm(db_paths)
-        else:
-            ranger = db_paths
+        g_flag, g_denotation = asyncio.run(exec_on_db(g_str))
+        p_flag, p_denotation = asyncio.run(exec_on_db(pred))
 
-        for db_path in ranger:
-            g_flag, g_denotation = asyncio.run(exec_on_db(db_path, g_str))
-            p_flag, p_denotation = asyncio.run(exec_on_db(db_path, pred))
+        # we should expect the gold to be succesfully executed on the database
+        assert g_flag == "result", "gold query %s has error: %s" % (
+            g_str,
+            str(g_denotation),
+        )
 
-            # we should expect the gold to be succesfully executed on the database
-            assert g_flag != 'exception', 'gold query %s has error on database file %s' % (g_str, db_path)
+        # wrong if execution fails
+        if p_flag == "exception":
+            continue
 
-            # wrong if execution fails
-            if p_flag == 'exception':
-                pred_passes = 0
-
-            # if denotations are not equivalent, the prediction must be wrong
-            elif not result_eq(g_denotation, p_denotation, order_matters=order_matters):
-                pred_passes = 0
-            if pred_passes == 0:
-                break
-
-        # the model prediction has the same denotation as the gold for all databases
-        if pred_passes == 1:
-            return 1
+        # if denotations are not equivalent, the pred+iction must be wrong
+        if result_eq(g_denotation, p_denotation, order_matters=order_matters):
+            pred_passes += 1
 
     # none of the predictions passed
-    return 0
+    return pred_passes
