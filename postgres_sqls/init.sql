@@ -6,6 +6,12 @@ CREATE TABLE "author" (
     primary key("aid")
 );
 
+CREATE TABLE "author_values" (
+    "aid" bigint,
+    "value" text,
+    primary key("aid")
+);
+
 CREATE TABLE "cite" ("cited" bigint, "citing" bigint);
 
 CREATE TABLE "conference" (

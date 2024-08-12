@@ -1,1 +1,1 @@
-SELECT * FROM author
+SELECT * FROM publication LIMIT 5

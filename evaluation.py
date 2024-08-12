@@ -596,25 +596,6 @@ def print_scores(scores, etype, include_turn_acc=True):
         exec_scores = [scores[level]["exec"] for level in levels]
         print_formated_s("execution", exec_scores, "{:<20.3f}")
 
-    if etype in ["all", "match"]:
-        print("\n====================== EXACT MATCHING ACCURACY =====================")
-        exact_scores = [scores[level]["exact"] for level in levels]
-        print_formated_s("exact match", exact_scores, "{:<20.3f}")
-        print("\n---------------------PARTIAL MATCHING ACCURACY----------------------")
-        for type_ in partial_types:
-            this_scores = [scores[level]["partial"][type_]["acc"] for level in levels]
-            print_formated_s(type_, this_scores, "{:<20.3f}")
-
-        print("---------------------- PARTIAL MATCHING RECALL ----------------------")
-        for type_ in partial_types:
-            this_scores = [scores[level]["partial"][type_]["rec"] for level in levels]
-            print_formated_s(type_, this_scores, "{:<20.3f}")
-
-        print("---------------------- PARTIAL MATCHING F1 --------------------------")
-        for type_ in partial_types:
-            this_scores = [scores[level]["partial"][type_]["f1"] for level in levels]
-            print_formated_s(type_, this_scores, "{:<20.3f}")
-
     if include_turn_acc:
         print()
         print()
@@ -629,20 +610,11 @@ def print_scores(scores, etype, include_turn_acc=True):
             exec_scores = [scores[turn]["exec"] for turn in turns]
             print_formated_s("execution", exec_scores, "{:<20.3f}")
 
-        if etype in ["all", "match"]:
-            print(
-                "\n====================== TURN EXACT MATCHING ACCURACY ====================="
-            )
-            exact_scores = [scores[turn]["exact"] for turn in turns]
-            print_formated_s("exact match", exact_scores, "{:<20.3f}")
-
 
 def evaluate(
     gold,
     predict,
-    db_dir,
     etype,
-    kmaps,
     plug_value,
     keep_distinct,
     progress_bar_for_each_datapoint,
@@ -773,68 +745,6 @@ def evaluate(
                 else:
                     turn_scores["exec"].append(0)
 
-            if etype in ["all", "match"]:
-                raise NotImplementedError("Partial match evaluation is not implemented")
-                # rebuild sql for value evaluation
-                kmap = kmaps["DEFAULT"]
-                g_valid_col_units = build_valid_col_units(
-                    g_sql["from"]["table_units"], schema
-                )
-                g_sql = rebuild_sql_val(g_sql)
-                g_sql = rebuild_sql_col(g_valid_col_units, g_sql, kmap)
-                p_valid_col_units = build_valid_col_units(
-                    p_sql["from"]["table_units"], schema
-                )
-                p_sql = rebuild_sql_val(p_sql)
-                p_sql = rebuild_sql_col(p_valid_col_units, p_sql, kmap)
-                exact_score = evaluator.eval_exact_match(p_sql, g_sql)
-                partial_scores = evaluator.partial_scores
-                if exact_score == 0:
-                    turn_scores["exact"].append(0)
-                    print("{} pred: {}".format(hardness, p_str))
-                    print("{} gold: {}".format(hardness, g_str))
-                    print("")
-                else:
-                    turn_scores["exact"].append(1)
-                scores[turn_id]["exact"] += exact_score
-                scores[hardness]["exact"] += exact_score
-                scores["all"]["exact"] += exact_score
-                for type_ in partial_types:
-                    if partial_scores[type_]["pred_total"] > 0:
-                        scores[hardness]["partial"][type_]["acc"] += partial_scores[
-                            type_
-                        ]["acc"]
-                        scores[hardness]["partial"][type_]["acc_count"] += 1
-                    if partial_scores[type_]["label_total"] > 0:
-                        scores[hardness]["partial"][type_]["rec"] += partial_scores[
-                            type_
-                        ]["rec"]
-                        scores[hardness]["partial"][type_]["rec_count"] += 1
-                    scores[hardness]["partial"][type_]["f1"] += partial_scores[type_][
-                        "f1"
-                    ]
-                    if partial_scores[type_]["pred_total"] > 0:
-                        scores["all"]["partial"][type_]["acc"] += partial_scores[type_][
-                            "acc"
-                        ]
-                        scores["all"]["partial"][type_]["acc_count"] += 1
-                    if partial_scores[type_]["label_total"] > 0:
-                        scores["all"]["partial"][type_]["rec"] += partial_scores[type_][
-                            "rec"
-                        ]
-                        scores["all"]["partial"][type_]["rec_count"] += 1
-                    scores["all"]["partial"][type_]["f1"] += partial_scores[type_]["f1"]
-
-                entries.append(
-                    {
-                        "predictSQL": p_str,
-                        "goldSQL": g_str,
-                        "hardness": hardness,
-                        "exact": exact_score,
-                        "partial": partial_scores,
-                    }
-                )
-
         if all(v == 1 for v in turn_scores["exec"]):
             scores["joint_all"]["exec"] += 1
 
@@ -847,49 +757,11 @@ def evaluate(
         if etype in ["all", "exec"]:
             scores[turn]["exec"] /= scores[turn]["count"]
 
-        if etype in ["all", "match"]:
-            scores[turn]["exact"] /= scores[turn]["count"]
-
     for level in levels:
         if scores[level]["count"] == 0:
             continue
         if etype in ["all", "exec"]:
             scores[level]["exec"] /= scores[level]["count"]
-
-        if etype in ["all", "match"]:
-            scores[level]["exact"] /= scores[level]["count"]
-            for type_ in partial_types:
-                if scores[level]["partial"][type_]["acc_count"] == 0:
-                    scores[level]["partial"][type_]["acc"] = 0
-                else:
-                    scores[level]["partial"][type_]["acc"] = (
-                        scores[level]["partial"][type_]["acc"]
-                        / scores[level]["partial"][type_]["acc_count"]
-                        * 1.0
-                    )
-                if scores[level]["partial"][type_]["rec_count"] == 0:
-                    scores[level]["partial"][type_]["rec"] = 0
-                else:
-                    scores[level]["partial"][type_]["rec"] = (
-                        scores[level]["partial"][type_]["rec"]
-                        / scores[level]["partial"][type_]["rec_count"]
-                        * 1.0
-                    )
-                if (
-                    scores[level]["partial"][type_]["acc"] == 0
-                    and scores[level]["partial"][type_]["rec"] == 0
-                ):
-                    scores[level]["partial"][type_]["f1"] = 1
-                else:
-                    scores[level]["partial"][type_]["f1"] = (
-                        2.0
-                        * scores[level]["partial"][type_]["acc"]
-                        * scores[level]["partial"][type_]["rec"]
-                        / (
-                            scores[level]["partial"][type_]["rec"]
-                            + scores[level]["partial"][type_]["acc"]
-                        )
-                    )
 
     print_scores(scores, etype, include_turn_acc=include_turn_acc)
 
@@ -1065,55 +937,6 @@ def rebuild_sql_col(valid_col_units, sql, kmap):
     return sql
 
 
-def build_foreign_key_map(entry):
-    cols_orig = entry["column_names_original"]
-    tables_orig = entry["table_names_original"]
-
-    # rebuild cols corresponding to idmap in Schema
-    cols = []
-    for col_orig in cols_orig:
-        if col_orig[0] >= 0:
-            t = tables_orig[col_orig[0]]
-            c = col_orig[1]
-            cols.append("__" + t.lower() + "." + c.lower() + "__")
-        else:
-            cols.append("__all__")
-
-    def keyset_in_list(k1, k2, k_list):
-        for k_set in k_list:
-            if k1 in k_set or k2 in k_set:
-                return k_set
-        new_k_set = set()
-        k_list.append(new_k_set)
-        return new_k_set
-
-    foreign_key_list = []
-    foreign_keys = entry["foreign_keys"]
-    for fkey in foreign_keys:
-        key1, key2 = fkey
-        key_set = keyset_in_list(key1, key2, foreign_key_list)
-        key_set.add(key1)
-        key_set.add(key2)
-
-    foreign_key_map = {}
-    for key_set in foreign_key_list:
-        sorted_list = sorted(list(key_set))
-        midx = sorted_list[0]
-        for idx in sorted_list:
-            foreign_key_map[cols[idx]] = cols[midx]
-
-    return foreign_key_map
-
-
-def build_foreign_key_map_from_json(table):
-    with open(table) as f:
-        data = json.load(f)
-    tables = {}
-    for entry in data:
-        tables[entry["db_id"]] = build_foreign_key_map(entry)
-    return tables
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -1121,23 +944,6 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--pred", dest="pred", type=str, help="the path to the predicted queries"
-    )
-    parser.add_argument(
-        "--db",
-        dest="db",
-        type=str,
-        help="the directory that contains all the databases and test suites",
-    )
-    parser.add_argument(
-        "--table", dest="table", type=str, help="the tables.json schema file"
-    )
-    parser.add_argument(
-        "--etype",
-        dest="etype",
-        type=str,
-        default="exec",
-        help="evaluation type, exec for test suite accuracy, match for the original exact set match accuracy",
-        choices=("all", "exec", "match"),
     )
     parser.add_argument(
         "--plug_value",
@@ -1159,20 +965,12 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    # only evaluting exact match needs this argument
-    kmaps = None
-    if args.etype in ["all", "match"]:
-        assert (
-            args.table is not None
-        ), "table argument must be non-None if exact set match is evaluated"
-        kmaps = build_foreign_key_map_from_json(args.table)
+    etype = "exec"
 
     evaluate(
         args.gold,
         args.pred,
-        args.db,
-        args.etype,
-        kmaps,
+        etype,
         args.plug_value,
         args.keep_distinct,
         args.progress_bar_for_each_datapoint,
