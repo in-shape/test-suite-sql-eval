@@ -1,5 +1,9 @@
 # Shape Postgresql Comparison
 
+<p align="center">
+  <img src="assets/image.png" alt="Alt text">
+</p>
+
 We got this code from the Github repo of Spider, the Yale SQL generation benchmark, and we want to use it to test some SQLs. We changed it a bit to support Postgresql instead of sqlite. We wrote a some test SQLs that should work (and we feed the same as golden queries and prediction queries).
 However, we keep getting errors, exceptions, and weird behaviors.
 
@@ -41,3 +45,7 @@ Help us solve this!
 # Submission Instructions
 
 Create a PR on this repo. The PR should include all code changes, new documentation, usage & setup instructions.
+
+<p align="center" style="margin-top: 20px;">
+  <img src="assets/image-1.png" width="10%">
+</p>
